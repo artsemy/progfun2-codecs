@@ -197,11 +197,8 @@ trait DecoderInstances:
   given [A] (using decoder: Decoder[A]): Decoder[List[A]] =
     Decoder.fromFunction {
       case Json.Arr(items) =>
-        val listOpt = items.map(x => decoder.decode(x))
-        if listOpt.forall(x => x.isDefined) then
-          Some(listOpt.map(_.get))
-        else
-          None
+        val listOpt = items.map(decoder.decode)
+        Option.when(listOpt.forall(_.isDefined))(listOpt.flatten)
       case _ => None
     }
 
@@ -211,10 +208,7 @@ trait DecoderInstances:
     */
   def field[A](name: String)(using decoder: Decoder[A]): Decoder[A] =
     Decoder.fromFunction {
-      case Json.Obj(col) => col.get(name) match {
-        case Some(value) => decoder.decode(value)
-        case None => None
-      }
+      case Json.Obj(col) => col.get(name).flatMap(decoder.decode)
       case _ => None
     }
 
@@ -233,13 +227,9 @@ trait PersonCodecs:
 
   /** The corresponding decoder for `Person` */
   given Decoder[Person] =
-    json =>
-      val nameOpt = Decoder.field[String]("name").decode(json)
-      val ageOpt = Decoder.field[Int]("age").decode(json)
-      if nameOpt.isDefined && ageOpt.isDefined then
-        Some(Person(nameOpt.get, ageOpt.get))
-      else
-        None
+    Decoder.field[String]("name")
+      .zip(Decoder.field[Int]("age"))
+      .transform[Person]((name, age) => Person(name, age))
 
 
 case class Contacts(people: List[Person])
@@ -258,12 +248,9 @@ trait ContactsCodecs:
       .transform(list => list.people)
 
   given Decoder[Contacts] =
-    json =>
-      val list = Decoder.field[List[Person]]("people").decode(json)
-      if list.isDefined then
-        Some(Contacts(list.get))
-      else
-        None
+    Decoder
+      .field[List[Person]]("people")
+      .transform(list => Contacts(list))
 
 // In case you want to try your code, here is a simple `Main`
 // that can be used as a starting point. Otherwise, you can use
